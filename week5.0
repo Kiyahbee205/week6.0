@@ -1,0 +1,334 @@
+x# Week 6: Scaling, Load Balancing, and DNS Failover
+
+## HarborTech Ticket Summary
+
+Ticket: TKT-2026-0005
+Focus: Availability, scaling, traffic distribution, health checks, and DNS failover
+
+The HarborTech ticket identifies a capacity concern related to an upcoming promotion. Previous promotion traffic reached **92% CPU utilization**, and the upcoming promotion is expected to **double request volume**.
+
+The proposed Auto Scaling design is:
+
+* **Minimum:** 2 instances
+* **Desired:** 2 instances
+* **Maximum:** 6 instances
+
+The ticket also states that an **Application Load Balancer (ALB)** has two test targets reported as healthy. A secondary recovery endpoint is available, but **Route 53 failover has not been confirmed**.
+
+---
+
+## Client Impact
+
+The expected increase in traffic could place additional CPU and request load on the application.
+
+If enough capacity is not available, customers could experience:
+
+* Slow response times
+* Application errors
+* Service unavailability
+
+Using multiple instances can provide additional capacity, but simply adding instances does not automatically distribute traffic between them. A load balancer is needed to distribute requests across available targets.
+
+DNS failover is also a separate configuration that needs to be verified and tested.
+
+---
+
+# Investigation 1: Auto Scaling Groups
+
+## Objective
+
+Determine whether an Auto Scaling Group already exists in the assigned AWS environment and identify its minimum, desired, and maximum capacity.
+
+### Command
+
+```bash
+aws autoscaling describe-auto-scaling-groups \
+  --query 'AutoScalingGroups[].{Name:AutoScalingGroupName,Min:MinSize,Desired:DesiredCapacity,Max:MaxSize}' \
+  --output table
+```
+
+### Expected Information
+
+The command should display:
+
+* Auto Scaling Group name
+* Minimum capacity
+* Desired capacity
+* Maximum capacity
+
+### My AWS Result
+
+**Result: No Auto Scaling Groups were returned.**
+
+Because the command did not return an Auto Scaling Group, I could not personally verify that the proposed **2 / 2 / 6** configuration currently exists in my assigned AWS environment.
+
+### Evidence Interpretation
+
+The **2 / 2 / 6 configuration is treated as provided ticket evidence**, not as a configuration that I personally verified.
+
+I did not create an Auto Scaling Group just to manufacture evidence.
+
+---
+
+# Investigation 2: Target Groups
+
+## Objective
+
+Determine whether a target group exists and identify the targets associated with the load balancer.
+
+### Command
+
+```bash
+aws elbv2 describe-target-groups \
+  --query 'TargetGroups[].{Name:TargetGroupName,TargetGroupArn:TargetGroupArn,Protocol:Protocol,Port:Port}' \
+  --output table
+```
+
+### Expected Information
+
+The command can provide:
+
+* Target group name
+* Target group ARN
+* Protocol
+* Port
+
+If a target group is returned, save its ARN for the target health investigation.
+
+---
+
+## Check Target Health
+
+Set the target group ARN:
+
+```bash
+TARGET_GROUP_ARN=$(aws elbv2 describe-target-groups \
+  --query 'TargetGroups[0].TargetGroupArn' \
+  --output text)
+```
+
+Display the ARN:
+
+```bash
+echo "$TARGET_GROUP_ARN"
+```
+
+Check target health:
+
+```bash
+aws elbv2 describe-target-health \
+  --target-group-arn "$TARGET_GROUP_ARN" \
+  --query 'TargetHealthDescriptions[].{Target:Target.Id,Port:Target.Port,State:TargetHealth.State,Reason:TargetHealth.Reason}' \
+  --output table
+```
+
+### My AWS Result
+
+The target-group result was **not captured in the available evidence**.
+
+Therefore, I cannot claim that I personally verified:
+
+* An existing target group
+* The target group ARN
+* The health of the application targets
+
+The ticket states that two test targets are healthy, but this remains **provided ticket evidence**.
+
+I did not use another student's ARN or create a target group to produce evidence.
+
+---
+
+# Investigation 3: Route 53 Hosted Zones
+
+## Objective
+
+Determine whether Route 53 hosted zones are present in the assigned AWS environment.
+
+### Command
+
+```bash
+aws route53 list-hosted-zones \
+  --query 'HostedZones[].{Name:Name,Id:Id,Private:Config.PrivateZone}' \
+  --output table
+```
+
+### Expected Information
+
+The command can show:
+
+* Hosted zone name
+* Hosted zone ID
+* Whether the zone is private
+
+### My AWS Result
+
+The Route 53 hosted-zone result was **not captured in the available evidence**.
+
+Therefore, I cannot personally verify that a Route 53 hosted zone, failover record, or health check is configured.
+
+The ticket states that a secondary recovery endpoint is available, but **Route 53 failover still requires verification**.
+
+---
+
+# Virtualization Connection
+
+Auto Scaling and load balancing are useful in virtualized cloud environments because additional virtual instances can be added when demand increases.
+
+Instead of depending on one server, an application can use multiple virtual instances.
+
+A load balancer can then distribute client requests across the available instances.
+
+This provides better scalability and availability.
+
+However, these controls have different purposes:
+
+| Technology    | Purpose                                                    |
+| ------------- | ---------------------------------------------------------- |
+| Auto Scaling  | Adjusts the number of instances                            |
+| Load Balancer | Distributes client traffic                                 |
+| Target Group  | Identifies targets for the load balancer                   |
+| Health Check  | Determines whether a target is responding                  |
+| Route 53      | Provides DNS routing                                       |
+| Failover      | Redirects traffic when the primary resource is unavailable |
+
+---
+
+# Operational Analysis
+
+The ticket evidence shows a real capacity concern.
+
+Previous promotion traffic reached **92% CPU utilization**, and the upcoming promotion is expected to double request volume.
+
+The proposed Auto Scaling configuration of **2 / 2 / 6** would provide:
+
+* At least 2 instances
+* 2 instances during normal operation
+* Up to 6 instances when additional capacity is needed
+
+However, my AWS investigation did **not** return an existing Auto Scaling Group.
+
+Therefore, I cannot confirm that this configuration is currently deployed.
+
+A load balancer would help distribute requests across healthy application targets.
+
+The target group identifies which instances can receive traffic, while target health checks help determine whether those instances are responding correctly.
+
+The ticket also identifies a secondary recovery endpoint. However, having a secondary endpoint does not by itself prove that DNS failover is configured.
+
+Route 53 configuration, health checks, failover routing, and testing would need to be verified.
+
+---
+
+# Recommendations
+
+## 1. Capacity
+
+HarborTech should evaluate the proposed **2 / 2 / 6 Auto Scaling design** because the upcoming promotion is expected to significantly increase traffic.
+
+Any production changes should follow the approved change-management process.
+
+## 2. Traffic Distribution
+
+HarborTech should use an **Application Load Balancer and target group** to distribute client requests across healthy application instances.
+
+## 3. Health Monitoring
+
+HarborTech should monitor:
+
+* CPU utilization
+* Request volume
+* Response time
+* Application errors
+* Instance health
+* Target health
+
+Health checks should test meaningful application availability instead of only confirming that an instance responds.
+
+## 4. DNS Failover
+
+HarborTech should verify the Route 53 configuration before considering failover ready.
+
+The team should verify:
+
+1. Primary DNS record
+2. Secondary DNS record
+3. Health checks
+4. Failover routing
+5. Recovery endpoint
+6. Controlled failover test
+
+The failover test should be approved before being performed.
+
+---
+
+# Evidence Summary
+
+| Investigation               | AWS Evidence                    | Status                  |
+| --------------------------- | ------------------------------- | ----------------------- |
+| Auto Scaling Groups         | No Auto Scaling Groups returned | Verified                |
+| Proposed 2 / 2 / 6 design   | Provided by ticket              | Not personally verified |
+| Target Groups               | Evidence not captured           | Not verified            |
+| Target Health               | Evidence not captured           | Not verified            |
+| Route 53 Hosted Zones       | Evidence not captured           | Not verified            |
+| Secondary Recovery Endpoint | Provided by ticket              | Not personally verified |
+| Route 53 Failover           | Not confirmed                   | Requires verification   |
+
+---
+
+# Escalation Notes
+
+Production changes to Auto Scaling, the Application Load Balancer, target groups, Route 53 records, health checks, or failover settings should only be completed through the approved change and escalation process.
+
+The following items require additional verification or authorized support:
+
+* Whether the proposed Auto Scaling Group exists in the correct environment
+* Whether the Application Load Balancer is configured
+* Whether a target group is configured
+* Whether both application targets are actually healthy
+* Whether Route 53 hosted zones and failover records are configured
+* Whether the secondary recovery endpoint is reachable
+* Whether a controlled failover test has been approved
+
+**No resources were created or modified during this investigation to manufacture evidence.**
+
+---
+
+# Lessons Learned
+
+This investigation showed me that cloud availability requires more than simply adding servers.
+
+Auto Scaling, load balancing, health checks, and DNS failover each have different purposes.
+
+I also learned the importance of separating **ticket evidence** from **AWS evidence**.
+
+If an AWS command does not return a resource, I should document that result instead of creating or borrowing a resource just to produce evidence. This makes the investigation more accurate and shows the operations team what still needs to be verified.
+
+---
+
+# Professional Vocabulary
+
+Elasticity: The ability of a cloud environment to increase or decrease resources as demand changes.
+
+Scalability: The ability of a system to handle increased workload by adding resources.
+
+Load Balancer: A service that distributes client traffic across available application targets.
+
+Target Group: A group of targets, such as EC2 instances, that a load balancer sends traffic to.
+
+Health Check: A test used to determine whether a target or service is responding as expected.
+
+Auto Scaling Group: A collection of instances managed together so capacity can be adjusted based on configured limits and conditions.
+
+Launch Template: A reusable configuration that defines how new EC2 instances should be launched.
+
+Desired Capacity: The number of instances an Auto Scaling Group attempts to maintain during normal operation.
+
+Minimum Capacity: The lowest number of instances an Auto Scaling Group should maintain.
+
+Maximum Capacity: The highest number of instances an Auto Scaling Group is allowed to maintain.
+
+Route 53: AWS's DNS service used to route users to applications and services.
+
+Failover: A process that directs traffic to a backup resource when the primary resource is unavailable.
+
+Target Health: The health status reported for targets based on configured health checks.
